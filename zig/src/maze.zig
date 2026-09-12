@@ -68,7 +68,7 @@ pub const MazeGenerator = struct {
     pub const Maze = struct {
         width: i32,
         height: i32,
-        cells: [][]Cell,
+        cells: []Cell,
         start: *Cell,
         finish: *Cell,
         allocator: std.mem.Allocator,
@@ -78,29 +78,19 @@ pub const MazeGenerator = struct {
             const w = @max(width, 5);
             const h = @max(height, 5);
 
-            const cells = try allocator.alloc([]Cell, @intCast(h));
-            var initialized_rows: usize = 0;
-            errdefer {
-                for (cells[0..initialized_rows]) |row| {
-                    allocator.free(row);
-                }
-                allocator.free(cells);
-            }
+            const cells = try allocator.alloc(Cell, @intCast(w * h));
+            errdefer allocator.free(cells);
 
             var y: i32 = 0;
             while (y < h) : (y += 1) {
-                const row = try allocator.alloc(Cell, @intCast(w));
-                cells[@intCast(y)] = row;
-                initialized_rows += 1;
-
                 var x: i32 = 0;
                 while (x < w) : (x += 1) {
-                    row[@intCast(x)] = Cell.init(x, y);
+                    cells[@intCast(y * w + x)] = Cell.init(x, y);
                 }
             }
 
-            const start = &cells[1][1];
-            const finish = &cells[@intCast(h - 2)][@intCast(w - 2)];
+            const start = &cells[@intCast(w + 1)];
+            const finish = &cells[@intCast((h - 2) * w + w - 2)];
             start.kind = .start;
             finish.kind = .finish;
 
@@ -121,15 +111,12 @@ pub const MazeGenerator = struct {
         }
 
         pub fn deinit(self: *Maze) void {
-            for (self.cells) |row| {
-                self.allocator.free(row);
-            }
             self.allocator.free(self.cells);
             self.allocator.destroy(self);
         }
 
         fn cellAt(self: *Maze, y: i32, x: i32) *Cell {
-            return &self.cells[@intCast(y)][@intCast(x)];
+            return &self.cells[@intCast(y * self.width + x)];
         }
 
         pub fn updateNeighbors(self: *Maze) void {
@@ -164,10 +151,8 @@ pub const MazeGenerator = struct {
         }
 
         pub fn reset(self: *Maze) void {
-            for (self.cells) |row| {
-                for (row) |*cell| {
-                    cell.reset();
-                }
+            for (self.cells) |*cell| {
+                cell.reset();
             }
             self.start.kind = .start;
             self.finish.kind = .finish;
@@ -257,19 +242,17 @@ pub const MazeGenerator = struct {
         }
 
         pub fn middleCell(self: *const Maze) *Cell {
-            return &self.cells[@intCast(@divTrunc(self.height, 2))][@intCast(@divTrunc(self.width, 2))];
+            return &self.cells[@intCast(@divTrunc(self.height, 2) * self.width + @divTrunc(self.width, 2))];
         }
 
         pub fn checksum(self: *const Maze) u32 {
             var hasher: u32 = 2166136261;
             const prime: u32 = 16777619;
 
-            for (self.cells) |row| {
-                for (row) |cell| {
-                    if (cell.kind == .space) {
-                        const val = @as(u32, @intCast(cell.x * cell.y));
-                        hasher = (hasher ^ val) *% prime;
-                    }
+            for (self.cells) |cell| {
+                if (cell.kind == .space) {
+                    const val = @as(u32, @intCast(cell.x * cell.y));
+                    hasher = (hasher ^ val) *% prime;
                 }
             }
             return hasher;
@@ -633,9 +616,7 @@ pub const MazeAStar = struct {
                 errdefer result.deinit(self.allocator);
                 var cur = @as(i32, @intCast(current_idx));
                 while (cur != -1) {
-                    const y = @divTrunc(cur, self.width);
-                    const x = @mod(cur, self.width);
-                    const cell = &self.maze.?.cells[@intCast(y)][@intCast(x)];
+                    const cell = &self.maze.?.cells[@intCast(cur)];
                     try result.append(self.allocator, cell);
                     cur = came_from[@intCast(cur)];
                 }
@@ -644,9 +625,7 @@ pub const MazeAStar = struct {
             }
 
             const current_g = g_score[@intCast(current_idx)];
-            const current_y = @divTrunc(current_idx, self.width);
-            const current_x = @mod(current_idx, self.width);
-            const current_cell = &self.maze.?.cells[@intCast(current_y)][@intCast(current_x)];
+            const current_cell = &self.maze.?.cells[@intCast(current_idx)];
 
             for (current_cell.neighborSlice()) |neighbor| {
                 if (!neighbor.kind.isWalkable()) continue;
